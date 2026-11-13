@@ -1,0 +1,74 @@
+services:
+  jaeger:
+    image: jaegertracing/all-in-one:1.62.0
+    container_name: jaeger
+    environment:
+      - COLLECTOR_OTLP_ENABLED=true
+    ports:
+      - "16686:16686" # UI do Jaeger
+      - "14269:14269" # Métricas internas
+
+  prometheus:
+    image: prom/prometheus:v2.55.0
+    container_name: prometheus
+    command:
+      - '--config.file=/etc/prometheus/prometheus.yml'
+      - '--enable-feature=exemplar-storage'
+      - '--web.enable-remote-write-receiver'
+    volumes:
+      - ./prometheus/prometheus.yml:/etc/prometheus/prometheus.yml
+    ports:
+      - "9090:9090"
+
+  loki:
+    image: grafana/loki:3.2.0
+    container_name: loki
+    command: -config.file=/etc/loki/local-config.yaml
+    volumes:
+      - ./loki/loki-config.yaml:/etc/loki/local-config.yaml
+    ports:
+      - "3100:3100"
+
+  otel-collector:
+    image: otel/opentelemetry-collector-contrib:0.112.0
+    container_name: otel-collector
+    command: ["--config=/etc/otel-collector-config.yaml"]
+    volumes:
+      - ./otel/otel-collector-config.yaml:/etc/otel-collector-config.yaml
+    ports:
+      - "4317:4317" # OTLP gRPC (Para suas aplicações)
+      - "4318:4318" # OTLP HTTP (Para suas aplicações)
+      - "8888:8888" # Métricas internas do Collector
+      - "8889:8889" # Exporter Prometheus
+    depends_on:
+      - jaeger
+      - prometheus
+      - loki
+
+  grafana:
+    image: grafana/grafana:11.3.0
+    container_name: grafana
+    environment:
+      - GF_AUTH_ANONYMOUS_ENABLED=true
+      - GF_AUTH_ANONYMOUS_ORG_ROLE=Admin
+    volumes:
+      - ./grafana/provisioning:/etc/grafana/provisioning
+    ports:
+      - "3000:3000"
+    depends_on:
+      - prometheus
+      - jaeger
+      - loki
+
+  # Gerador oficial CNCF OpenTelemetry para testar os 3 sinais
+  telemetrygen:
+    image: ghcr.io/open-telemetry/opentelemetry-collector-contrib/telemetrygen:v0.112.0
+    command:
+      - traces
+      - --otlp-endpoint=otel-collector:4317
+      - --otlp-insecure
+      - --rate=2
+      - --duration=5m
+      - --service=checkout-service-cncf
+    depends_on:
+      - otel-collector

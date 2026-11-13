@@ -1,0 +1,50 @@
+receivers:
+  otlp:
+    protocols:
+      grpc:
+        endpoint: 0.0.0.0:4317
+      http:
+        endpoint: 0.0.0.0:4318
+
+processors:
+  batch:
+    timeout: 1s
+    send_batch_size: 1024
+  resource:
+    attributes:
+      - key: deployment.environment
+        value: "local-cncf"
+        action: upsert
+
+exporters:
+  # 1. Envia Traces nativamente via OTLP para o Jaeger
+  otlp/jaeger:
+    endpoint: jaeger:4317
+    tls:
+      insecure: true
+
+  # 2. Expõe métricas em formato Prometheus para scraping (com suporte a Exemplars)
+  prometheus:
+    endpoint: "0.0.0.0:8889"
+    enable_open_metrics: true
+
+  # 3. Envia Logs nativamente via OTLP HTTP para o Loki
+  otlphttp/loki:
+    endpoint: "http://loki:3100/otlp"
+    tls:
+      insecure: true
+
+service:
+  pipelines:
+    traces:
+      receivers: [otlp]
+      processors: [resource, batch]
+      exporters: [otlp/jaeger]
+    metrics:
+      receivers: [otlp]
+      processors: [resource, batch]
+      exporters: [prometheus]
+    logs:
+      receivers: [otlp]
+      processors: [resource, batch]
+      exporters: [otlphttp/loki]
